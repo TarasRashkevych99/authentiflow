@@ -1,16 +1,15 @@
 //@ts-nocheck
 import { Elysia } from "elysia";
-import fs from "fs";
 
 const app = new Elysia({
   serve: {
     tls: {
-      key: fs.readFileSync("cert/key.pem"),
-      cert: fs.readFileSync("cert/cert.pem"),
-      ca: fs.readFileSync("cert/ca.pem"),
+      key: Bun.file("cert/host.pem"),
+      cert: Bun.file("cert/hostcrt.pem"),
+      ca: [Bun.file("cert/cacrt.pem")],
     },
     websocket: {
-      idleTimeout: 30,
+      idleTimeout: 30000,
     },
   },
 })
@@ -23,5 +22,5 @@ const app = new Elysia({
   .listen(3000);
 
 console.log(
-  `🦊 Elysia is running at ${app.server?.hostame}:${app.server?.port}`
+  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
 );
