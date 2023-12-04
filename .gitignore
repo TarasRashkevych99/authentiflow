@@ -131,9 +131,9 @@ dist
 
 .DS_Store
 #certificates
-*.pem
-*.key
-*.srl
-*.csr
+**/*.pem
+**/*.key
+**/*.srl
+**/*.csr
 
 

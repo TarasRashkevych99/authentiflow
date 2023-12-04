@@ -1,16 +1,22 @@
 {
-  "name": "authentiflow-webapp-main",
-  "version": "1.0.50",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "bun run --watch src/index.ts"
-  },
-  "dependencies": {
-    "elysia": "latest"
-  },
-  "devDependencies": {
-    "bun-types": "latest",
-    "prettier": "^3.1.0"
-  },
-  "module": "src/index.js"
+    "name": "authentiflow-api",
+    "version": "1.0.0",
+    "description": "Fully authenticated web chat application",
+    "main": "index.js",
+    "scripts": {
+        "start": "node src/index.js",
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "dotenv": "^16.3.1",
+        "express": "^4.18.2"
+    },
+    "devDependencies": {
+        "eslint": "^8.55.0",
+        "eslint-config-google": "^0.14.0",
+        "eslint-config-prettier": "^9.1.0",
+        "prettier": "^3.1.0"
+    }
 }
