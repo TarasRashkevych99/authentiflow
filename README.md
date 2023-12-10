@@ -9,7 +9,7 @@ In reality, all the certificates are self-signed and generated on the machine ho
 
 ### Certificate and Key Generation
 
-By analyzing the available options provided by the OpenSSL library it has been decided to prefer elliptic curve cryptography over RSA. The main reason is that the former is more secure nowadays then the latter and it is also more efficient in terms of data storage. The particular ellipic curve that has been used is the secp521r1 curve, which is one with a high security level according to NIST. Other curves suggested by NIST like secp384r1 and secp256r1 were discarded due to their lower security level, even if they are more efficient in terms of performance.
+By analyzing the available options provided by the OpenSSL library it has been decided to prefer elliptic curve cryptography over RSA. The main reason is that the former is more secure nowadays then the latter and it is also more efficient in terms of data storage. The particular ellipic curve that has been used is the secp384r1 curve, which is one with a high security level according to NIST.
 The following is the command used to generate the keys for the CA, the server and the clients:
 
 ```
