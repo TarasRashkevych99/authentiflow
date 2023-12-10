@@ -1,5 +1,0 @@
-openssl ecparam -genkey -name secp384r1 -out cert/ca.key
-openssl req -x509 -new -sha512 -nodes -key cert/ca.key -days 3650 -out cert/cacrt.pem -config cert/_ca.conf
-openssl ecparam -genkey -name secp384r1 -out cert/host.pem
-openssl req -new -sha512 -nodes -key cert/host.pem -out cert/host.csr -config cert/_host.conf
-openssl x509 -req -sha512 -days 365 -in cert/host.csr -CA cert/cacrt.pem -CAkey cert/ca.key -CAcreateserial -out cert/hostcrt.pem -extfile cert/_host-ext.conf

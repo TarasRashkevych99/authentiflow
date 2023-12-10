@@ -2,25 +2,37 @@ const express = require('express');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-// const addMiddlewares = require("./middlewares/middlewares");
-// const addRoutes = require("./routes/routes");
+
+const clientAuthMiddleware = () => (req, res, next) => {
+    if (!req.client.authorized) {
+        return res
+            .status(401)
+            .send('Invalid client certificate authentication.');
+    }
+    return next();
+};
 
 let app = express();
 
-// addMiddlewares(app);
-// addRoutes(app);
+app.use(clientAuthMiddleware());
 
-if (process.env.HTTPS === 'true') {
-    const options = {
-        key: fs.readFileSync(path.join(__dirname, '../cert/server/key.pem')),
-        cert: fs.readFileSync(path.join(__dirname, '../cert/server/cert.pem')),
-        requestCert: true,
-        rejectUnauthorized: false,
-        ca: [fs.readFileSync(path.join(__dirname, '../cert/server/cert.pem'))],
-    };
+app.get('/', (req, res) => {
+    res.send('Hello World!');
+});
 
-    app = https.createServer(options, app);
-}
+const options = {
+    key: fs.readFileSync(
+        path.join(__dirname, '../cert/keys/server/server_key.pem')
+    ),
+    cert: fs.readFileSync(
+        path.join(__dirname, '../cert/keys/server/server_crt.pem')
+    ),
+    requestCert: true,
+    rejectUnauthorized: true,
+    ca: [fs.readFileSync(path.join(__dirname, '../cert/keys/ca_crt.pem'))],
+};
+
+app = https.createServer(options, app);
 
 const port = 3000 || process.env.PORT;
 
