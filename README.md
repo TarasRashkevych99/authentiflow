@@ -13,7 +13,7 @@ By analyzing the available options provided by the OpenSSL library it has been d
 The following is the command used to generate the keys for the CA, the server and the clients:
 
 ```
-openssl ecparam -genkey -name secp521r1 -out <key_name>.key
+openssl ecparam -genkey -name secp384r1 -out <key_name>.key
 ```
 
 Once the CA key has been generated, the CA self-signed certificate can be generated as well by running the following command:
@@ -69,5 +69,25 @@ DNS.2 = <DNS subdomain name>
 Once the CSR has been generated, it can be signed by the CA private key by running the following command:
 
 ```
-openssl x509 -req -sha512 -days 365 -in server_cert_req.csr -CA ca_crt.pem -CAkey ca.key -out server_crt.pem -extfile host_ext.conf
+openssl x509 -req -sha512 -days 365 -in server_cert_req.csr -CA ca_crt.pem -CAkey ca.key -out server_crt.pem
 ```
+
+In order to generate the clients' certificates, as it was done with the server, it is necessary at first to generate a client CSR. The main difference between the two procedures resides in the fact that the generation of the clients' CSR doesn't require an additional configuration file due to the fact the client entity is much simpler and, in our abstraction, all the meaningful information stored in the their certificates can be specified under the -subj flag. The clients' CSR can be generated with the following command:
+
+```
+openssl req -new -sha512 -nodes -subj "/CN=<client_CN>" -key <client_name>_key.pem -out <client_name>_cert_req.csr
+```
+
+As with the server, starting from the clients' CSR it is possible to generate the respective certificates with the following command:
+
+```
+openssl x509 -req -sha512 -days 365 -in <client_name>_cert_req.csr -CA ca_crt.pem -CAkey ca.key -out <client_name>_crt.pem
+```
+
+In order to export the certificates of each client in a way that allows the browser to share them with the server during the mutual authentication process, the following command is used:
+
+```
+openssl pkcs12 -export -legacy -in <client_name>_crt.pem -inkey <client_name>_key.pem -out <client_name>.p12
+```
+
+To conclude, the export generates a PKCS12 file, a well-known file format used to store private keys and associated certificates. The -legacy flag is an option that ensures compatibility with legacy implementations, making it suitable for its execution on Macintosh.
