@@ -17,7 +17,20 @@ if [ -d "$folder_name" ]; then
         echo "Terminating script."
         exit 1
     fi
+else
+    mkdir "$folder_name"
+    mkdir "$folder_name/$server_folder_name"
+    mkdir "$folder_name/$alice_folder_name"
+    mkdir "$folder_name/$bob_folder_name"
 fi
+
+cleanup() {
+    echo "An error occurred. Cleaning up..."
+    rm -rf "$folder_name"
+    exit 1
+}
+
+trap cleanup ERR
 
 # Generate CA certificate
 openssl ecparam -genkey -name secp384r1 -out $folder_name/ca.key
