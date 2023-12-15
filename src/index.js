@@ -42,6 +42,8 @@ webSocket.on('connection', (socket) => {
     console.log(`${socket.id} connected \n`);
 
     socket.on('joinMsg', (roomPhrase) => {
+        //create a room when 2 clients are searching for it
+
         if (roomPhrase.length <= 10) return;
 
         const roomHash = crypto.createHash('sha256');
@@ -52,21 +54,28 @@ webSocket.on('connection', (socket) => {
         );
 
         if (!roomPhraseToUser[roomDigest]) {
+            //if the client is proposing for the first time a room, create the proposal
             roomPhraseToUser[roomDigest] = socket.id;
         } else {
+            //if another client is trying to enter in already proposed room, create it and make the clients join into
             console.log(
                 `${socket.id} and ${roomPhraseToUser[roomDigest]} can join in room with phrase ${roomPhrase} (digest: ${roomDigest}) \n`
             );
-            webSocket
-                .to(socket.id)
-                .to(roomPhraseToUser[roomDigest])
-                .emit('confirmJoin', true);
 
+            const room = 'room_' + roomDigest;
+
+            socket.join(room);
+            webSocket.sockets.sockets
+                .get(roomPhraseToUser[roomDigest])
+                .join(room);
+
+            webSocket.to(room).emit('confirmJoin', room);
             delete roomPhraseToUser[roomDigest];
         }
     });
 
     socket.on('cancelJoinMsg', (roomPhrase) => {
+        //if a client decided to change in room-phrase while waiting for another client to join, the proposed room is deleted
         const roomHash = crypto.createHash('sha256');
         roomHash.update(roomPhrase);
         const roomDigest = roomHash.digest('hex');
@@ -75,6 +84,13 @@ webSocket.on('connection', (socket) => {
             delete roomPhraseToUser[roomDigest];
             console.log(`Deleted room proposed by ${socket.id} \n`);
         }
+    });
+
+    socket.on('sendMsg', (msg) => {
+        //send a message to the other clients in the room of the sender
+        const joinedRooms = Array.from(socket.rooms);
+
+        socket.to(joinedRooms).emit('receiveMsg', msg);
     });
 });
 
