@@ -1,7 +1,7 @@
 <template>
   <v-app>
     <v-main>
-      <AuthentiflowChat/>
+      <AuthentiflowChat />
     </v-main>
   </v-app>
 </template>
@@ -10,13 +10,14 @@
 import AuthentiflowChat from './components/AuthentiflowChat.vue'
 export default {
   name: 'App',
-
   components: {
-    AuthentiflowChat,
-  },
-
-  data: () => ({
-    //
-  }),
+    AuthentiflowChat
+  }
 }
 </script>
+
+<style scoped>
+.v-application {
+  background-color: rgb(15, 23, 42);
+}
+</style>
