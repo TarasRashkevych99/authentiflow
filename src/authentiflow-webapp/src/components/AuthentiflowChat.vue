@@ -234,7 +234,7 @@ export default {
   -webkit-text-fill-color: transparent;
 } */
 .v-list-item-title {
-  position: fixed;
+  position: absolute;
   background-clip: text;
   color: transparent;
   background-image: linear-gradient(to right, #7dd3fc, #818cf8);
