@@ -41,10 +41,10 @@ var roomPhraseToUser = {};
 webSocket.on('connection', (socket) => {
     console.log(`${socket.id} connected \n`);
 
-    socket.on('joinMsg', (roomPhrase) => {
+    socket.on('joinRoom', (roomPhrase) => {
         //create a room when 2 clients are searching for it
 
-        if (roomPhrase.length <= 10) return;
+        // if (roomPhrase.length <= 10) return;
 
         const roomHash = crypto.createHash('sha256');
         roomHash.update(roomPhrase);
@@ -69,12 +69,12 @@ webSocket.on('connection', (socket) => {
                 .get(roomPhraseToUser[roomDigest])
                 .join(room);
 
-            webSocket.to(room).emit('confirmJoin', room);
+            webSocket.to(room).emit('roomCreation', room);
             delete roomPhraseToUser[roomDigest];
         }
     });
 
-    socket.on('cancelJoinMsg', (roomPhrase) => {
+    socket.on('cancelJoin', (roomPhrase) => {
         //if a client decided to change in room-phrase while waiting for another client to join, the proposed room is deleted
         const roomHash = crypto.createHash('sha256');
         roomHash.update(roomPhrase);
@@ -86,11 +86,11 @@ webSocket.on('connection', (socket) => {
         }
     });
 
-    socket.on('sendMsg', (msg) => {
+    socket.on('messageSent', (msg) => {
         //send a message to the other clients in the room of the sender
         const joinedRooms = Array.from(socket.rooms);
 
-        socket.to(joinedRooms).emit('receiveMsg', msg);
+        socket.to(joinedRooms).emit('messageReceived', msg);
     });
 });
 
