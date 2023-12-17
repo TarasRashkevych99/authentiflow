@@ -47,7 +47,7 @@
       <br />
       <v-virtual-scroll :items="messages" height="400">
         <template v-slot:default="{ item }">
-          <v-list-item :title="item.message">
+          <v-list-item :title="item.message" :class="{ 'chat-end-message': item?.end }">
             <template v-slot:prepend>
               <v-avatar
                 :color="item.sender !== 'Me' ? '#7dd3fc' : '#818cf8'"
@@ -143,9 +143,14 @@ export default {
   },
   mounted() {
     this.socket = io('wss://localhost:3000')
-    this.socket.on('roomCreation', (room) => {
+    window.addEventListener('beforeunload', this.handler)
+    this.socket.on('roomCreation', () => {
       //the server created a room for your room phrase, and inserted the socket into it
       this.searchingRoom = false
+    })
+    this.socket.on('roomLeft', () => {
+      //the other client left the room
+      this.messages.push({ sender: 'Other', message: 'Your roommate left the room', end: true })
     })
     this.socket.on('messageReceived', (msg) => {
       //receive message sent by the other client
@@ -166,29 +171,24 @@ export default {
       this.isCancelButtonDisabled = true
       this.isPhraseTextFieldDisabled = false
       this.loading = false
+      this.phrase = ''
     },
     leaveRoom() {
-      //leave a room (TODO add leave room at backend)
       this.searchingRoom = true
+      this.isCancelButtonDisabled = true
       this.isPhraseTextFieldDisabled = false
       this.loading = false
-      this.isCancelButtonDisabled = true
       this.message = ''
       this.messages = []
+      this.socket.emit('roomLeft', this.phrase)
+      this.phrase = ''
     },
     sendMessage() {
       //send a message to other client in room
       this.messages.push({ sender: 'Me', message: this.message })
-      this.socket.emit('messageSent', this.message)
+      this.socket.emit('messageSent', this.phrase, this.message)
       this.isAfterSendingMessage = true
       this.message = ''
-    }
-  },
-  beforeUnmount() {
-    //TODO fix
-    if (this.socket) {
-      // this.socket.emit('cancelJoinMsg', roomPhrase)
-      this.socket.disconnect()
     }
   }
 }
@@ -214,6 +214,9 @@ export default {
   background-image: linear-gradient(to right, #7dd3fc, #818cf8);
   /* background-image: linear-gradient(to right, #656fce, #8a59bb); */
   /* background-image: linear-gradient(to right, #818cf8, #c084fc); */
+}
+.chat-end-message {
+  font-style: italic;
 }
 </style>
 
