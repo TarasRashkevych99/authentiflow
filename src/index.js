@@ -44,8 +44,19 @@ const webSocket = io(app);
 const port = 3000 || process.env.PORT;
 
 const clientFootprints = new Map();
+const socketIdToCN = {};
+
 webSocket.on('connection', (socket) => {
     console.log(`Client with socket id ${socket.id} connected \n`);
+    const clientCert = socket.request.connection.getPeerCertificate();
+
+    if (clientCert && Object.keys(clientCert).length > 0) {
+        const commonName = clientCert.subject.CN;
+        socketIdToCN[socket.id] = commonName;
+        console.log(`Mapped socket.id ${socket.id} to CN ${commonName}`);
+    } else {
+        socketIdToCN[socket.id] = 'Unknown';
+    }
 
     socket.on('joinRoom', (phrase) => {
         //create a room when 2 clients are searching for it
@@ -60,11 +71,11 @@ webSocket.on('connection', (socket) => {
             //if the client is proposing for the first time a room, create the proposal
             clientFootprints.set(roomId, {
                 initiatorSocketId: socket.id,
+                joiningSocketId: null,
                 numberOfClients: 1,
             });
         } else {
             //if another client is trying to enter in already proposed room, create it and make the clients join into
-
             const clientFootprint = clientFootprints.get(roomId);
 
             if (clientFootprint.numberOfClients >= 2) {
@@ -78,15 +89,31 @@ webSocket.on('connection', (socket) => {
                 `${socket.id} and ${clientFootprint.initiatorSocketId} can join the room with phrase ${phrase} (roomId: ${roomId}) \n`
             );
 
+            clientFootprint.joiningSocketId = socket.id;
             clientFootprint.numberOfClients++;
+
             const roomName = `room_${roomId}`;
 
+            //Join the clients in the room and let them aware about this
             socket.join(roomName);
             webSocket.sockets.sockets
                 .get(clientFootprint.initiatorSocketId)
                 .join(roomName);
 
-            webSocket.to(roomName).emit('roomCreation');
+            webSocket.sockets.sockets
+                .get(clientFootprint.joiningSocketId)
+                .join(roomName);
+
+            webSocket
+                .to(clientFootprint.initiatorSocketId)
+                .emit('roomCreation', {
+                    CN: socketIdToCN[clientFootprint.joiningSocketId],
+                    initiator: true,
+                });
+            webSocket.to(clientFootprint.joiningSocketId).emit('roomCreation', {
+                CN: socketIdToCN[clientFootprint.initiatorSocketId],
+                initiator: false,
+            });
         }
     });
 
@@ -101,18 +128,35 @@ webSocket.on('connection', (socket) => {
         }
     });
 
-    socket.on('messageSent', (phrase, msg) => {
+    socket.on('keySent', (phrase, key) => {
+        //share the key to the other clients in the room
+        const roomId = getRoomId(phrase);
+        socket.to(`room_${roomId}`).emit('keyReceived', key);
+    });
+
+    socket.on('messageSent', (phrase, msg, iv) => {
         //send a message to the other clients in the room of the sender
         const roomId = getRoomId(phrase);
-        socket.to(`room_${roomId}`).emit('messageReceived', msg);
+        socket.to(`room_${roomId}`).emit('messageReceived', msg, iv);
     });
 
     socket.on('roomLeft', (phrase) => {
         //when a client leaves a room, the other client is notified
         const roomId = getRoomId(phrase);
         const clientFootprint = clientFootprints.get(roomId);
+        socket.leave(`room_${roomId}`);
 
         if (clientFootprint.numberOfClients >= 2) {
+            if (socket.id == clientFootprint.initiatorSocketId) {
+                //if the initializator was leaving, make the other client the new initializator aka leader
+                clientFootprint.initiatorSocketId =
+                    clientFootprint.joiningSocketId;
+                clientFootprint.joiningSocketId = null;
+            }
+            if (socket.id == clientFootprint.joiningSocketId) {
+                clientFootprint.joiningSocketId = null;
+            }
+
             clientFootprint.numberOfClients--;
             socket.to(`room_${roomId}`).emit('roomLeft');
             console.log(
@@ -127,6 +171,7 @@ webSocket.on('connection', (socket) => {
     socket.on('disconnect', (phrase) => {
         //when a client disconnects, the other client is notified
         console.log(`${socket.id} disconnected \n`);
+        delete socketIdToCN[socket.id];
     });
 });
 

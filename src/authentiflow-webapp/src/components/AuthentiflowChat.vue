@@ -63,6 +63,7 @@
       <br />
       <v-card-text>
         <v-text-field
+          :disabled="isMessageFieldDisabled"
           v-model="message"
           color="primary"
           base-color="primary"
@@ -103,12 +104,15 @@ export default {
     searchingRoom: true, //if true, show choose-room subcomponent
     isCancelButtonDisabled: true, //if true, show "search for another room" button
     isSendButtonDisabled: false, //if false, disable the "send" button
+    isMessageFieldDisabled: false, //the field where a message is written
     isPhraseTextFieldDisabled: false, //if false, disable the textfield where insert room phrase
     isAfterSendingMessage: false, //if true, show the "send" button
     isPhraseValid: false,
+    peerCN: '',
     phrase: '', //room phrase
     message: '', //message to send
-    messages: [] //list of messages exchanges
+    messages: [], //list of messages exchanges
+    key: '' //symmetric key to use in the chat
   }),
   computed: {
     phraseRule() {
@@ -144,17 +148,46 @@ export default {
   mounted() {
     this.socket = io('wss://localhost:3000')
     window.addEventListener('beforeunload', this.handler)
-    this.socket.on('roomCreation', () => {
+    this.socket.on('roomCreation', async (response) => {
       //the server created a room for your room phrase, and inserted the socket into it
+      this.peerCN = response.CN
+
+      if (response.initiator) {
+        this.key = await this.generateKey()
+        const exportedKeyBuffer = new Uint8Array(
+          await window.crypto.subtle.exportKey('raw', this.key)
+        )
+
+        this.socket.emit('keySent', this.phrase, exportedKeyBuffer)
+      }
+
+      this.messages.push({
+        sender: this.peerCN,
+        message: this.peerCN + ' joined the room',
+        end: true
+      })
       this.searchingRoom = false
+      this.isSendButtonDisabled = false
+      this.isMessageFieldDisabled = false
     })
     this.socket.on('roomLeft', () => {
       //the other client left the room
-      this.messages.push({ sender: 'Other', message: 'Your roommate left the room', end: true })
+      this.messages.push({
+        sender: this.peerCN,
+        message: this.peerCN + ' left the room',
+        end: true
+      })
+      this.isSendButtonDisabled = true
+      this.isMessageFieldDisabled = true
     })
-    this.socket.on('messageReceived', (msg) => {
-      //receive message sent by the other client
-      this.messages.push({ sender: 'Other', message: msg })
+    this.socket.on('messageReceived', async (encryptedMessage, iv) => {
+      this.messages.push({
+        sender: this.peerCN,
+        message: await this.decryptMessage(encryptedMessage, iv, this.key)
+      })
+    })
+    this.socket.on('keyReceived', async (rawKey) => {
+      this.key = await this.importKey(rawKey)
     })
   },
   methods: {
@@ -183,12 +216,79 @@ export default {
       this.socket.emit('roomLeft', this.phrase)
       this.phrase = ''
     },
-    sendMessage() {
+    async sendMessage() {
       //send a message to other client in room
       this.messages.push({ sender: 'Me', message: this.message })
-      this.socket.emit('messageSent', this.phrase, this.message)
+
+      const iv = window.crypto.getRandomValues(new Uint8Array(12))
+      const encryptedMessage = await this.encryptMessage(this.message, iv, this.key)
+      this.socket.emit('messageSent', this.phrase, encryptedMessage, iv)
+
       this.isAfterSendingMessage = true
       this.message = ''
+    },
+    async generateKey() {
+      try {
+        const key = await window.crypto.subtle.generateKey(
+          {
+            name: 'AES-GCM',
+            length: 256
+          },
+          true,
+          ['encrypt', 'decrypt']
+        )
+        console.log('generatedKey')
+        return key
+      } catch (error) {
+        console.error('Error generating or exporting key:', error)
+      }
+    },
+    async importKey(rawKey) {
+      try {
+        const key = await window.crypto.subtle.importKey('raw', rawKey, 'AES-GCM', true, [
+          'encrypt',
+          'decrypt'
+        ])
+        console.log('importedKey')
+        return key
+      } catch (error) {
+        console.error('ImportKey error:', error)
+      }
+    },
+    async encryptMessage(message, iv, key) {
+      try {
+        const enc = new TextEncoder()
+
+        const encryptedBuffer = await window.crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv: iv },
+          key,
+          enc.encode(message)
+        )
+
+        const encryptedMessage = new Uint8Array(encryptedBuffer)
+        //console.log('Encrypted Message:', encryptedMessage)
+
+        return encryptedMessage
+      } catch (error) {
+        console.error('Encryption error:', error)
+      }
+    },
+
+    async decryptMessage(encryptedMessage, iv, key) {
+      try {
+        const decryptedBuffer = await window.crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: iv },
+          key,
+          encryptedMessage
+        )
+        const dec = new TextDecoder()
+        const decryptedMessage = dec.decode(decryptedBuffer)
+        //console.log('Decrypted Message:', decryptedMessage)
+
+        return decryptedMessage
+      } catch (error) {
+        console.error('Encryption/Decryption error:', error)
+      }
     }
   }
 }
