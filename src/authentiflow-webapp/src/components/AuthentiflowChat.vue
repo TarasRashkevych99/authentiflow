@@ -112,8 +112,7 @@ export default {
     phrase: '', //room phrase
     message: '', //message to send
     messages: [], //list of messages exchanges
-    key: null, //symmetric key to use in the chat
-    isKeyValid: false //so, its not expired
+    key: null //symmetric key to use in the chat
   }),
   computed: {
     phraseRule() {
@@ -196,7 +195,6 @@ export default {
         message: 'This communication is protected by a key shared by the other party',
         end: true
       })
-      this.isKeyValid = true
     })
   },
   methods: {
@@ -226,7 +224,6 @@ export default {
     leaveRoom() {
       //leave a room through the proposed button
       this.key = null
-      this.isKeyValid = null
       this.searchingRoom = true
       this.isCancelButtonDisabled = true
       this.isPhraseTextFieldDisabled = false
@@ -256,7 +253,6 @@ export default {
       )
 
       this.socket.emit('keySent', this.phrase, exportedKeyBuffer)
-      this.isKeyValid = true
       this.messages.push({
         sender: this.peerCN,
         message: 'This communication is protected by a key generated and shared by you',
