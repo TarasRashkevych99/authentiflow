@@ -70,8 +70,8 @@ webSocket.on('connection', (socket) => {
         if (!clientFootprints.has(roomId)) {
             //if the client is proposing for the first time a room, create the proposal
             clientFootprints.set(roomId, {
-                initiatorSocketId: socket.id,
-                joiningSocketId: null,
+                initiatorSocketId: socket.id, //the client proposing the room
+                joiningSocketId: null, //the second client joining into the room, at the moment unknown
                 numberOfClients: 1,
             });
         } else {
@@ -106,14 +106,18 @@ webSocket.on('connection', (socket) => {
 
             webSocket
                 .to(clientFootprint.initiatorSocketId)
-                .emit('roomCreation', {
-                    CN: socketIdToCN[clientFootprint.joiningSocketId],
-                    initiator: true,
-                });
-            webSocket.to(clientFootprint.joiningSocketId).emit('roomCreation', {
-                CN: socketIdToCN[clientFootprint.initiatorSocketId],
-                initiator: false,
-            });
+                .emit(
+                    'roomCreation',
+                    true,
+                    socketIdToCN[clientFootprint.joiningSocketId]
+                ); //in emit is sent isInitiator, CN of other client
+            webSocket
+                .to(clientFootprint.joiningSocketId)
+                .emit(
+                    'roomCreation',
+                    false,
+                    socketIdToCN[clientFootprint.initiatorSocketId]
+                );
         }
     });
 

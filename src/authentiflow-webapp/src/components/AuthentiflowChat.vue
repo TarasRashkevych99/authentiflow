@@ -112,7 +112,8 @@ export default {
     phrase: '', //room phrase
     message: '', //message to send
     messages: [], //list of messages exchanges
-    key: '' //symmetric key to use in the chat
+    key: null, //symmetric key to use in the chat
+    isKeyValid: false //so, its not expired
   }),
   computed: {
     phraseRule() {
@@ -148,17 +149,14 @@ export default {
   mounted() {
     this.socket = io('wss://localhost:3000')
     window.addEventListener('beforeunload', this.handler)
-    this.socket.on('roomCreation', async (response) => {
+
+    this.socket.on('roomCreation', async (isInitiator, CN) => {
       //the server created a room for your room phrase, and inserted the socket into it
-      this.peerCN = response.CN
+      this.peerCN = CN
 
-      if (response.initiator) {
-        this.key = await this.generateKey()
-        const exportedKeyBuffer = new Uint8Array(
-          await window.crypto.subtle.exportKey('raw', this.key)
-        )
-
-        this.socket.emit('keySent', this.phrase, exportedKeyBuffer)
+      if (isInitiator) {
+        //to the initiator is given the job of creating a key
+        await this.generateAndShareKey()
       }
 
       this.messages.push({
@@ -170,6 +168,7 @@ export default {
       this.isSendButtonDisabled = false
       this.isMessageFieldDisabled = false
     })
+
     this.socket.on('roomLeft', () => {
       //the other client left the room
       this.messages.push({
@@ -180,19 +179,37 @@ export default {
       this.isSendButtonDisabled = true
       this.isMessageFieldDisabled = true
     })
+
     this.socket.on('messageReceived', async (encryptedMessage, iv) => {
+      //decrypt and show the message received
       this.messages.push({
         sender: this.peerCN,
         message: await this.decryptMessage(encryptedMessage, iv, this.key)
       })
     })
+
     this.socket.on('keyReceived', async (rawKey) => {
+      //retrieve and store the key received, it's useful only for the non-chat-initiator
       this.key = await this.importKey(rawKey)
+      this.messages.push({
+        sender: this.peerCN,
+        message: 'This communication is protected by a key shared by the other party',
+        end: true
+      })
+      this.isKeyValid = true
     })
   },
   methods: {
     joinRoom() {
       //open or join a room given a room phrase
+      if (this.phrase.length < 10 || !this.phrase.includes(' ')) {
+        if (
+          !window.confirm(
+            'The phrase you inserted seems week because short or represented by a single word. Are you sure you want proceed?'
+          )
+        )
+          return
+      }
       this.isCancelButtonDisabled = false
       this.isPhraseTextFieldDisabled = true
       this.loading = true
@@ -207,6 +224,9 @@ export default {
       this.phrase = ''
     },
     leaveRoom() {
+      //leave a room through the proposed button
+      this.key = null
+      this.isKeyValid = null
       this.searchingRoom = true
       this.isCancelButtonDisabled = true
       this.isPhraseTextFieldDisabled = false
@@ -227,7 +247,24 @@ export default {
       this.isAfterSendingMessage = true
       this.message = ''
     },
+    async generateAndShareKey() {
+      //it generate a key through generateKey() and it shares it to the other peer, the function is called only by the chat initiator
+      this.key = await this.generateKey()
+      const exportedKeyBuffer = new Uint8Array(
+        //in order to be shared, the key must to be exported
+        await window.crypto.subtle.exportKey('raw', this.key)
+      )
+
+      this.socket.emit('keySent', this.phrase, exportedKeyBuffer)
+      this.isKeyValid = true
+      this.messages.push({
+        sender: this.peerCN,
+        message: 'This communication is protected by a key generated and shared by you',
+        end: true
+      })
+    },
     async generateKey() {
+      //called by the generateAndShareKey() function in order to generate a key
       try {
         const key = await window.crypto.subtle.generateKey(
           {
@@ -244,6 +281,7 @@ export default {
       }
     },
     async importKey(rawKey) {
+      //the non-initiator party uses it in order to import a shared key
       try {
         const key = await window.crypto.subtle.importKey('raw', rawKey, 'AES-GCM', true, [
           'encrypt',
@@ -256,6 +294,7 @@ export default {
       }
     },
     async encryptMessage(message, iv, key) {
+      //used by both the parties before sending a message
       try {
         const enc = new TextEncoder()
 
@@ -273,8 +312,8 @@ export default {
         console.error('Encryption error:', error)
       }
     },
-
     async decryptMessage(encryptedMessage, iv, key) {
+      //used by both the parties before showing a message
       try {
         const decryptedBuffer = await window.crypto.subtle.decrypt(
           { name: 'AES-GCM', iv: iv },
