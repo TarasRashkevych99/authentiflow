@@ -143,7 +143,7 @@ webSocket.on('connection', (socket) => {
     socket.on('secretSent', (phrase, secret) => {
         //share the key to the other clients in the room
         const roomId = getRoomId(phrase);
-        console.log(secret);
+        //console.log(secret);
         socket.to(`room_${roomId}`).emit('secretReceived', secret);
     });
 

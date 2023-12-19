@@ -212,14 +212,14 @@ export default {
     this.socket.on('secretReceived', async (secret) => {
       //retrieve and store the key received, it's useful only for the non-chat-initiator
       try {
-        const { exportedEncryptedKeyBuffer, signature } = secret
+        const { encryptedExportedKeyBuffer, signature } = secret
 
         console.log(secret)
         const verified = await window.crypto.subtle.verify(
           { name: 'ECDSA', hash: 'SHA-384' },
           this.peerPublicKeySign,
           signature,
-          exportedEncryptedKeyBuffer
+          encryptedExportedKeyBuffer
         )
 
         if (!verified) {
@@ -232,7 +232,7 @@ export default {
             name: 'RSA-OAEP'
           },
           this.keyPairEnc.privateKey,
-          exportedEncryptedKeyBuffer
+          encryptedExportedKeyBuffer
         )
 
         this.key = await this.importSymmetricKey(exportedKeyBuffer)
@@ -359,7 +359,9 @@ export default {
     },
     async exportPublicKey(publicKey) {
       try {
-        const exportedPublicKeyBuffer = await window.crypto.subtle.exportKey('spki', publicKey)
+        const exportedPublicKeyBuffer = new Uint8Array(
+          await window.crypto.subtle.exportKey('spki', publicKey)
+        )
         return exportedPublicKeyBuffer
       } catch (error) {
         console.error('Error exporting public key:', error)
