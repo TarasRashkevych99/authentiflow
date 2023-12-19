@@ -6,9 +6,6 @@ const path = require('path');
 const io = require('socket.io');
 const crypto = require('crypto');
 
-const modifySymmetricKeyToForward = false; //To use in the demo
-const modifyMessageToForward = false; //To use in the demo
-
 const clientAuthMiddleware = () => (req, res, next) => {
     if (!req.client.authorized) {
         return res
@@ -27,7 +24,7 @@ const getRoomId = (phrase) => {
 let app = express();
 
 app.use(express.static('src/authentiflow-webapp/dist'));
-// app.use(clientAuthMiddleware());
+//app.use(clientAuthMiddleware());
 
 const options = {
     key: fs.readFileSync(
@@ -150,7 +147,11 @@ webSocket.on('connection', (socket) => {
             `The server forward the following symmetric key, sent by ${socket.id}: ${encryptedExportedKeyBuffer}`
         );
 
-        if (modifySymmetricKeyToForward) {
+        if (
+            process.env.MODIFY_SYMMETRIC_KEY_TO_FORWARD === 'true'
+                ? true
+                : false
+        ) {
             //To use in the demo
             encryptedExportedKeyBuffer[0] = 0;
             console.log(
@@ -178,7 +179,7 @@ webSocket.on('connection', (socket) => {
             `Message receveid from ${socket.id} is ${encryptedMessage}`
         );
 
-        if (modifyMessageToForward) {
+        if (process.env.MODIFY_MESSAGE_TO_FORWARD === 'true' ? true : false) {
             //To use in the demo
             encryptedMessage[0] = 0;
             console.log(
