@@ -47,9 +47,10 @@
       <br />
       <v-virtual-scroll :items="messages" height="400">
         <template v-slot:default="{ item }">
-          <v-list-item :title="item.message" :class="{ 'chat-end-message': item?.end }">
+          <v-list-item :title="item.message" :class="{ 'chat-system-message': item?.system }">
             <template v-slot:prepend>
               <v-avatar
+                v-if="!item?.system"
                 :color="item.sender !== 'Me' ? '#7dd3fc' : '#818cf8'"
                 class="text-white"
                 size="40"
@@ -107,9 +108,9 @@ export default {
     isMessageFieldDisabled: true, //the field where a message is written
     isPhraseTextFieldDisabled: false, //if false, disable the textfield where insert room phrase
     isAfterSendingMessage: false, //if true, show the "send" button
-    isPhraseValid: false,
+    isPhraseValid: false, //so, if basicaly is not empty
     isInitiator: false, //if true, the client is the initiator of the chat
-    peerCN: '',
+    peerCN: '', //in order to personalize the avatar and some join/leave room message
     phrase: '', //room phrase
     message: '', //message to send
     messages: [], //list of messages exchanges
@@ -159,12 +160,14 @@ export default {
       this.peerCN = CN
       this.isInitiator = isInitiator
       this.searchingRoom = false
+      console.log(`initiator = ${this.isInitiator}`)
 
       this.messages.push({
-        sender: this.peerCN,
+        sender: 'System',
         message: `${this.peerCN} joined the room`,
-        end: true
+        system: true
       })
+      console.log(`${this.peerCN} joined the room`)
 
       await this.generateKeyPairsAndSharePublicKeys()
     })
@@ -172,16 +175,32 @@ export default {
     this.socket.on('roomLeft', () => {
       //the other client left the room
       this.messages.push({
-        sender: this.peerCN,
+        sender: 'System',
         message: `${this.peerCN} left the room`,
-        end: true
+        system: true
       })
+      console.log(`${this.peerCN} left the room`)
       this.isSendButtonDisabled = true
       this.isMessageFieldDisabled = true
     })
 
-    this.socket.on('messageReceived', async (encryptedMessage, iv) => {
+    this.socket.on('messageReceived', async (secret) => {
       //decrypt and show the message received
+      const { encryptedMessage, iv, signedMessage } = secret
+
+      const isVerified = await this.verifySignature(
+        this.peerPublicKeySign,
+        signedMessage,
+        encryptedMessage
+      )
+
+      if (!isVerified) {
+        console.error('Error verifying signature')
+        return
+      } else {
+        console.log('Message signature is correctly verified')
+      }
+
       this.messages.push({
         sender: this.peerCN,
         message: await this.decryptMessage(encryptedMessage, iv, this.key)
@@ -199,10 +218,12 @@ export default {
         { name: 'ECDSA', namedCurve: 'P-384' }
       )
       this.messages.push({
-        sender: this.peerCN,
+        sender: 'System',
         message: 'Peer public keys received',
-        end: true
+        system: true
       })
+
+      console.log('Peer public keys received')
       if (this.isInitiator) {
         //to the initiator is given the job of creating a key
         await this.generateAndShareSymmetricKey()
@@ -214,16 +235,20 @@ export default {
       try {
         const { encryptedExportedKeyBuffer, signature } = secret
 
-        console.log(secret)
-        const verified = await window.crypto.subtle.verify(
-          { name: 'ECDSA', hash: 'SHA-384' },
+        //console.log(secret)
+        const isVerified = await this.verifySignature(
           this.peerPublicKeySign,
           signature,
           encryptedExportedKeyBuffer
         )
 
-        if (!verified) {
-          console.error('Error verifying signature')
+        if (!isVerified) {
+          console.error('Error verifying key signature')
+          this.messages.push({
+            sender: 'System',
+            message: 'Symmetric key received cannot be verified',
+            system: true
+          })
           return
         }
 
@@ -237,17 +262,18 @@ export default {
 
         this.key = await this.importSymmetricKey(exportedKeyBuffer)
         this.messages.push({
-          sender: this.peerCN,
-          message: 'This communication is protected by a key shared by the other party',
-          end: true
+          sender: 'System',
+          message: 'Symmetric key received',
+          system: true
         })
 
         this.socket.emit('handshakeFinished', this.phrase)
+        console.log('Symmetric key received and imported, handshake finished')
 
         this.messages.push({
-          sender: this.peerCN,
+          sender: 'System',
           message: 'Handshake finished',
-          end: true
+          system: true
         })
 
         this.isMessageFieldDisabled = false
@@ -259,10 +285,11 @@ export default {
     this.socket.on('handshakeFinished', () => {
       //the other client finished the handshake
       this.messages.push({
-        sender: this.peerCN,
+        sender: 'System',
         message: 'Handshake finished',
-        end: true
+        system: true
       })
+      console.log('Symmetric key received by the other client, handshake finished')
 
       this.isMessageFieldDisabled = false
     })
@@ -302,14 +329,24 @@ export default {
       this.messages = []
       this.socket.emit('roomLeft', this.phrase)
       this.phrase = ''
+      this.isMessageFieldDisabled = true
     },
     async sendMessage() {
       //send a message to other client in room
-      this.messages.push({ sender: 'Me', message: this.message })
+      this.messages.push({ sender: 'Me', message: this.message }) //to avoid to show a message modified by third-parties
 
       const iv = window.crypto.getRandomValues(new Uint8Array(12))
       const encryptedMessage = await this.encryptMessage(this.message, iv, this.key)
-      this.socket.emit('messageSent', this.phrase, encryptedMessage, iv)
+      const signedMessage = await this.signMessage(encryptedMessage, this.keyPairSign.privateKey)
+
+      const secret = {
+        encryptedMessage,
+        iv,
+        signedMessage
+      }
+
+      this.socket.emit('messageSent', this.phrase, secret)
+      console.log(`Message that was Encrypted: ${this.message}`)
 
       this.isAfterSendingMessage = true
       this.message = ''
@@ -320,6 +357,8 @@ export default {
       this.keyPairSign = await this.generateEcKeyPair()
       const exportedEncPublicKeyBuffer = await this.exportPublicKey(this.keyPairEnc.publicKey)
       const exportedSignPublicKeyBuffer = await this.exportPublicKey(this.keyPairSign.publicKey)
+      console.log('Key pairs correctly generated and exported')
+
       this.socket.emit('publicKeysSent', this.phrase, {
         exportedEncPublicKeyBuffer,
         exportedSignPublicKeyBuffer
@@ -390,6 +429,15 @@ export default {
         console.error('Error importing public key:', error)
       }
     },
+    async verifySignature(publicKey, signature, data) {
+      const isVerified = await window.crypto.subtle.verify(
+        { name: 'ECDSA', hash: 'SHA-384' },
+        this.peerPublicKeySign,
+        signature,
+        data
+      )
+      return isVerified
+    },
     async generateAndShareSymmetricKey() {
       //it generate a key through generateKey() and it shares it to the other peer, the function is called only by the chat initiator
       this.key = await this.generateSymmetricKey()
@@ -410,12 +458,13 @@ export default {
         encryptedExportedKeyBuffer,
         signature
       }
+      console.log('Symmetric key correctly generated and exported')
 
       this.socket.emit('secretSent', this.phrase, secret)
       this.messages.push({
-        sender: this.peerCN,
-        message: 'This communication is protected by a key generated and shared by you',
-        end: true
+        sender: 'System',
+        message: 'Symmetric key generated',
+        system: true
       })
     },
     async generateSymmetricKey() {
@@ -429,7 +478,7 @@ export default {
           true,
           ['encrypt', 'decrypt']
         )
-        console.log('generatedKey')
+        //console.log('generatedKey')
         return key
       } catch (error) {
         console.error('Error generating key:', error)
@@ -453,7 +502,7 @@ export default {
           'encrypt',
           'decrypt'
         ])
-        console.log('importedKey')
+        //console.log('importedKey')
         return key
       } catch (error) {
         console.error('ImportKey error:', error)
@@ -471,11 +520,25 @@ export default {
         )
 
         const encryptedMessage = new Uint8Array(encryptedBuffer)
+
         //console.log('Encrypted Message:', encryptedMessage)
 
         return encryptedMessage
       } catch (error) {
         console.error('Encryption error:', error)
+      }
+    },
+    async signMessage(message, key) {
+      //used by both the parties before sending a message
+      try {
+        const signature = await window.crypto.subtle.sign(
+          { name: 'ECDSA', hash: 'SHA-384' },
+          key,
+          message
+        )
+        return signature
+      } catch (error) {
+        console.error('Signing error:', error)
       }
     },
     async decryptMessage(encryptedMessage, iv, key) {
@@ -488,7 +551,7 @@ export default {
         )
         const dec = new TextDecoder()
         const decryptedMessage = dec.decode(decryptedBuffer)
-        //console.log('Decrypted Message:', decryptedMessage)
+        console.log('Decrypted Message:', decryptedMessage)
 
         return decryptedMessage
       } catch (error) {
@@ -520,7 +583,7 @@ export default {
   /* background-image: linear-gradient(to right, #656fce, #8a59bb); */
   /* background-image: linear-gradient(to right, #818cf8, #c084fc); */
 }
-.chat-end-message {
+.chat-system-message {
   font-style: italic;
 }
 </style>

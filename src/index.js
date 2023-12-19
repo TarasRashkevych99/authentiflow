@@ -6,6 +6,9 @@ const path = require('path');
 const io = require('socket.io');
 const crypto = require('crypto');
 
+const modifySymmetricKeyToForward = false; //To use in the demo
+const modifyMessageToForward = false; //To use in the demo
+
 const clientAuthMiddleware = () => (req, res, next) => {
     if (!req.client.authorized) {
         return res
@@ -63,11 +66,11 @@ webSocket.on('connection', (socket) => {
 
         const roomId = getRoomId(phrase);
 
-        console.log(
-            `${socket.id} wants to join a room with phrase ${phrase} (roomId: ${roomId}) \n`
-        );
-
         if (!clientFootprints.has(roomId)) {
+            console.log(
+                `${socket.id} wants to join a room with phrase ${phrase} (roomId: ${roomId}) \n`
+            );
+
             //if the client is proposing for the first time a room, create the proposal
             clientFootprints.set(roomId, {
                 initiatorSocketId: socket.id, //the client proposing the room
@@ -142,6 +145,20 @@ webSocket.on('connection', (socket) => {
 
     socket.on('secretSent', (phrase, secret) => {
         //share the key to the other clients in the room
+        const { encryptedExportedKeyBuffer, signature } = secret;
+        console.log(
+            `The server forward the following symmetric key, sent by ${socket.id}: ${encryptedExportedKeyBuffer}`
+        );
+
+        if (modifySymmetricKeyToForward) {
+            //To use in the demo
+            encryptedExportedKeyBuffer[0] = 0;
+            console.log(
+                `The server modified the symmetric key before to forward it`
+            );
+        }
+        console.log(`\n`);
+
         const roomId = getRoomId(phrase);
         //console.log(secret);
         socket.to(`room_${roomId}`).emit('secretReceived', secret);
@@ -153,11 +170,25 @@ webSocket.on('connection', (socket) => {
         socket.to(`room_${roomId}`).emit('handshakeFinished');
     });
 
-    socket.on('messageSent', (phrase, msg, iv) => {
+    socket.on('messageSent', (phrase, secret) => {
         //send a message to the other clients in the room of the sender
-        console.log(`Message receveid from ${socket.id} is ${msg} \n`);
+        const { encryptedMessage, iv, signedMessage } = secret;
+
+        console.log(
+            `Message receveid from ${socket.id} is ${encryptedMessage}`
+        );
+
+        if (modifyMessageToForward) {
+            //To use in the demo
+            encryptedMessage[0] = 0;
+            console.log(
+                `The server tried to modify the encrypted message before to forward it`
+            );
+        }
+
+        console.log(`\n`);
         const roomId = getRoomId(phrase);
-        socket.to(`room_${roomId}`).emit('messageReceived', msg, iv);
+        socket.to(`room_${roomId}`).emit('messageReceived', secret);
     });
 
     socket.on('roomLeft', (phrase) => {
