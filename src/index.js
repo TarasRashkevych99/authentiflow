@@ -132,14 +132,30 @@ webSocket.on('connection', (socket) => {
         }
     });
 
-    socket.on('keySent', (phrase, key) => {
+    socket.on('publicKeysSent', (phrase, exportedPublicKeys) => {
+        //share the public key to the other clients in the room
+        const roomId = getRoomId(phrase);
+        socket
+            .to(`room_${roomId}`)
+            .emit('publicKeysReceived', exportedPublicKeys);
+    });
+
+    socket.on('secretSent', (phrase, secret) => {
         //share the key to the other clients in the room
         const roomId = getRoomId(phrase);
-        socket.to(`room_${roomId}`).emit('keyReceived', key);
+        console.log(secret);
+        socket.to(`room_${roomId}`).emit('secretReceived', secret);
+    });
+
+    socket.on('handshakeFinished', (phrase) => {
+        //notify the other clients in the room that the handshake is finished
+        const roomId = getRoomId(phrase);
+        socket.to(`room_${roomId}`).emit('handshakeFinished');
     });
 
     socket.on('messageSent', (phrase, msg, iv) => {
         //send a message to the other clients in the room of the sender
+        console.log(`Message receveid from ${socket.id} is ${msg} \n`);
         const roomId = getRoomId(phrase);
         socket.to(`room_${roomId}`).emit('messageReceived', msg, iv);
     });

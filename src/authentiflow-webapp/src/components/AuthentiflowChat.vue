@@ -104,15 +104,20 @@ export default {
     searchingRoom: true, //if true, show choose-room subcomponent
     isCancelButtonDisabled: true, //if true, show "search for another room" button
     isSendButtonDisabled: false, //if false, disable the "send" button
-    isMessageFieldDisabled: false, //the field where a message is written
+    isMessageFieldDisabled: true, //the field where a message is written
     isPhraseTextFieldDisabled: false, //if false, disable the textfield where insert room phrase
     isAfterSendingMessage: false, //if true, show the "send" button
     isPhraseValid: false,
+    isInitiator: false, //if true, the client is the initiator of the chat
     peerCN: '',
     phrase: '', //room phrase
     message: '', //message to send
     messages: [], //list of messages exchanges
-    key: null //symmetric key to use in the chat
+    key: null, //symmetric key to use in the chat
+    keyPairEnc: null, //asymmetric key pair to use in the chat
+    keyPairSign: null, //asymmetric key pair to use in the chat
+    peerPublicKeyEnc: null, //public key of the other peer
+    peerPublicKeySign: null //public key of the other peer
   }),
   computed: {
     phraseRule() {
@@ -147,32 +152,28 @@ export default {
   },
   mounted() {
     this.socket = io('wss://localhost:3000')
-    window.addEventListener('beforeunload', this.handler)
+    // window.addEventListener('beforeunload', this.handler)
 
     this.socket.on('roomCreation', async (isInitiator, CN) => {
       //the server created a room for your room phrase, and inserted the socket into it
       this.peerCN = CN
-
-      if (isInitiator) {
-        //to the initiator is given the job of creating a key
-        await this.generateAndShareKey()
-      }
+      this.isInitiator = isInitiator
+      this.searchingRoom = false
 
       this.messages.push({
         sender: this.peerCN,
-        message: this.peerCN + ' joined the room',
+        message: `${this.peerCN} joined the room`,
         end: true
       })
-      this.searchingRoom = false
-      this.isSendButtonDisabled = false
-      this.isMessageFieldDisabled = false
+
+      await this.generateKeyPairsAndSharePublicKeys()
     })
 
     this.socket.on('roomLeft', () => {
       //the other client left the room
       this.messages.push({
         sender: this.peerCN,
-        message: this.peerCN + ' left the room',
+        message: `${this.peerCN} left the room`,
         end: true
       })
       this.isSendButtonDisabled = true
@@ -187,14 +188,83 @@ export default {
       })
     })
 
-    this.socket.on('keyReceived', async (rawKey) => {
-      //retrieve and store the key received, it's useful only for the non-chat-initiator
-      this.key = await this.importKey(rawKey)
+    this.socket.on('publicKeysReceived', async (exportedPublicKeys) => {
+      //retrieve and store the public key received, it's useful only for the non-chat-initiator
+      this.peerPublicKeyEnc = await this.importPublicKey(
+        exportedPublicKeys.exportedEncPublicKeyBuffer
+      )
+      this.peerPublicKeySign = await this.importPublicKey(
+        exportedPublicKeys.exportedSignPublicKeyBuffer,
+        true,
+        { name: 'ECDSA', namedCurve: 'P-384' }
+      )
       this.messages.push({
         sender: this.peerCN,
-        message: 'This communication is protected by a key shared by the other party',
+        message: 'Peer public keys received',
         end: true
       })
+      if (this.isInitiator) {
+        //to the initiator is given the job of creating a key
+        await this.generateAndShareSymmetricKey()
+      }
+    })
+
+    this.socket.on('secretReceived', async (secret) => {
+      //retrieve and store the key received, it's useful only for the non-chat-initiator
+      try {
+        const { exportedEncryptedKeyBuffer, signature } = secret
+
+        console.log(secret)
+        const verified = await window.crypto.subtle.verify(
+          { name: 'ECDSA', hash: 'SHA-384' },
+          this.peerPublicKeySign,
+          signature,
+          exportedEncryptedKeyBuffer
+        )
+
+        if (!verified) {
+          console.error('Error verifying signature')
+          return
+        }
+
+        const exportedKeyBuffer = await window.crypto.subtle.decrypt(
+          {
+            name: 'RSA-OAEP'
+          },
+          this.keyPairEnc.privateKey,
+          exportedEncryptedKeyBuffer
+        )
+
+        this.key = await this.importSymmetricKey(exportedKeyBuffer)
+        this.messages.push({
+          sender: this.peerCN,
+          message: 'This communication is protected by a key shared by the other party',
+          end: true
+        })
+
+        this.socket.emit('handshakeFinished', this.phrase)
+
+        this.messages.push({
+          sender: this.peerCN,
+          message: 'Handshake finished',
+          end: true
+        })
+
+        this.isMessageFieldDisabled = false
+      } catch (error) {
+        console.error('Error decrypting and veryfing symmetric key:', error)
+      }
+    })
+
+    this.socket.on('handshakeFinished', () => {
+      //the other client finished the handshake
+      this.messages.push({
+        sender: this.peerCN,
+        message: 'Handshake finished',
+        end: true
+      })
+
+      this.isMessageFieldDisabled = false
     })
   },
   methods: {
@@ -244,23 +314,110 @@ export default {
       this.isAfterSendingMessage = true
       this.message = ''
     },
-    async generateAndShareKey() {
+    async generateKeyPairsAndSharePublicKeys() {
+      //it generate a key pair through generateKeyPair() and it shares the public key to the other peer
+      this.keyPairEnc = await this.generateRsaKeyPair()
+      this.keyPairSign = await this.generateEcKeyPair()
+      const exportedEncPublicKeyBuffer = await this.exportPublicKey(this.keyPairEnc.publicKey)
+      const exportedSignPublicKeyBuffer = await this.exportPublicKey(this.keyPairSign.publicKey)
+      this.socket.emit('publicKeysSent', this.phrase, {
+        exportedEncPublicKeyBuffer,
+        exportedSignPublicKeyBuffer
+      })
+    },
+    async generateRsaKeyPair() {
+      try {
+        const keyPair = await window.crypto.subtle.generateKey(
+          {
+            name: 'RSA-OAEP',
+            modulusLength: 4096,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: 'SHA-256'
+          },
+          true,
+          ['encrypt', 'decrypt']
+        )
+        return keyPair
+      } catch (error) {
+        console.error('Error generating key pair:', error)
+      }
+    },
+    async generateEcKeyPair() {
+      try {
+        const keyPair = await window.crypto.subtle.generateKey(
+          {
+            name: 'ECDSA',
+            namedCurve: 'P-384'
+          },
+          true,
+          ['sign', 'verify']
+        )
+        return keyPair
+      } catch (error) {
+        console.error('Error generating key pair:', error)
+      }
+    },
+    async exportPublicKey(publicKey) {
+      try {
+        const exportedPublicKeyBuffer = await window.crypto.subtle.exportKey('spki', publicKey)
+        return exportedPublicKeyBuffer
+      } catch (error) {
+        console.error('Error exporting public key:', error)
+      }
+    },
+    async importPublicKey(
+      exportedPublicKey,
+      signing = false,
+      params = {
+        name: 'RSA-OAEP',
+        modulusLength: 4096,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256'
+      }
+    ) {
+      try {
+        const publicKey = await window.crypto.subtle.importKey(
+          'spki',
+          exportedPublicKey,
+          params,
+          true,
+          signing ? ['verify'] : ['encrypt']
+        )
+        return publicKey
+      } catch (error) {
+        console.error('Error importing public key:', error)
+      }
+    },
+    async generateAndShareSymmetricKey() {
       //it generate a key through generateKey() and it shares it to the other peer, the function is called only by the chat initiator
-      this.key = await this.generateKey()
-      const exportedKeyBuffer = new Uint8Array(
-        //in order to be shared, the key must to be exported
-        await window.crypto.subtle.exportKey('raw', this.key)
+      this.key = await this.generateSymmetricKey()
+      const exportedKeyBuffer = await this.exportSymmetricKey()
+      const encryptedExportedKeyBuffer = await window.crypto.subtle.encrypt(
+        {
+          name: 'RSA-OAEP'
+        },
+        this.peerPublicKeyEnc,
+        exportedKeyBuffer
       )
+      const signature = await window.crypto.subtle.sign(
+        { name: 'ECDSA', hash: 'SHA-384' },
+        this.keyPairSign.privateKey,
+        encryptedExportedKeyBuffer
+      )
+      const secret = {
+        encryptedExportedKeyBuffer,
+        signature
+      }
 
-      this.socket.emit('keySent', this.phrase, exportedKeyBuffer)
+      this.socket.emit('secretSent', this.phrase, secret)
       this.messages.push({
         sender: this.peerCN,
         message: 'This communication is protected by a key generated and shared by you',
         end: true
       })
     },
-    async generateKey() {
-      //called by the generateAndShareKey() function in order to generate a key
+    async generateSymmetricKey() {
+      //called by the generateAndShareSymmetricKey() function in order to generate a key
       try {
         const key = await window.crypto.subtle.generateKey(
           {
@@ -273,10 +430,21 @@ export default {
         console.log('generatedKey')
         return key
       } catch (error) {
-        console.error('Error generating or exporting key:', error)
+        console.error('Error generating key:', error)
       }
     },
-    async importKey(rawKey) {
+    async exportSymmetricKey() {
+      //called by the generateAndShareSymmetricKey() function in order to export a key
+      try {
+        const exportedKeyBuffer = new Uint8Array(
+          await window.crypto.subtle.exportKey('raw', this.key)
+        )
+        return exportedKeyBuffer
+      } catch (error) {
+        console.error('Error exporting key:', error)
+      }
+    },
+    async importSymmetricKey(rawKey) {
       //the non-initiator party uses it in order to import a shared key
       try {
         const key = await window.crypto.subtle.importKey('raw', rawKey, 'AES-GCM', true, [
