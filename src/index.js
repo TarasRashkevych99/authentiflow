@@ -24,7 +24,7 @@ const getRoomId = (phrase) => {
 let app = express();
 
 app.use(express.static('src/authentiflow-webapp/dist'));
-//app.use(clientAuthMiddleware());
+app.use(clientAuthMiddleware());
 
 const options = {
     key: fs.readFileSync(
@@ -155,10 +155,10 @@ webSocket.on('connection', (socket) => {
             //To use in the demo
             encryptedExportedKeyBuffer[0] = 0;
             console.log(
-                `The server modified the symmetric key before to forward it`
+                'The server modified the symmetric key before to forward it'
             );
         }
-        console.log(`\n`);
+        console.log('\n');
 
         const roomId = getRoomId(phrase);
         //console.log(secret);
@@ -183,11 +183,11 @@ webSocket.on('connection', (socket) => {
             //To use in the demo
             encryptedMessage[0] = 0;
             console.log(
-                `The server tried to modify the encrypted message before to forward it`
+                'The server tried to modify the encrypted message before to forward it'
             );
         }
 
-        console.log(`\n`);
+        console.log('\n');
         const roomId = getRoomId(phrase);
         socket.to(`room_${roomId}`).emit('messageReceived', secret);
     });
